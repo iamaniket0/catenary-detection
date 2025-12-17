@@ -21,3 +21,4 @@ src/catenary_detector/models/wire.py
 src/catenary_detector/visualization/__init__.py
 src/catenary_detector/visualization/plotter.py
 tests/test_detector.py
+tests/test_plotting.py
