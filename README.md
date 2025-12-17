@@ -173,21 +173,7 @@ Each file contains a table with 3 columns:
 | `y` | float64 | Y coordinate | meters |
 | `z` | float64 | Z coordinate (height) | meters |
 
-**Example:**
-```python
-import pandas as pd
-df = pd.read_parquet('data/lidar_cable_points_easy.parquet')
-print(df.head())
-
-#          x         y          z
-# 0  0.178894 -25.0000  27.778411
-# 1  0.280392 -24.7487  27.366190
-# 2 -0.699226 -24.4975  26.951803
-```
-
 ### Using Your Own Data
-
-You can use your own LiDAR data in these formats:
 
 **Parquet (Recommended):**
 ```python
@@ -215,59 +201,45 @@ np.save('data/my_data.npy', points)
 
 ## ⚡ Quick Start
 
+### Basic Usage
+```python
 from catenary_detector import CatenaryDetector
-import numpy as np
 
 # Initialize detector
 detector = CatenaryDetector()
 
-# ------------------------------
-# Example 1: Load from a file
-# ------------------------------
-results_file = detector.fit("data/lidar_cable_points_easy.parquet")
+# Run detection on a file
+results = detector.fit("data/lidar_cable_points_easy.parquet")
 
 # Print summary
-detector.print_summary(results_file)
+detector.print_summary(results)
 
-# Access per-wire parameters
-for wire in results_file.wires:
+# Access results
+print(f"Wires detected: {results.n_wires}")
+for wire in results.wires:
+    print(f"  Wire {wire.wire_id}: {len(wire.points)} points, R²={wire.catenary.r_squared:.4f}")
+```
+
+### Using NumPy Arrays
+```python
+import numpy as np
+from catenary_detector import CatenaryDetector
+
+points = np.array([[1.0, 2.0, 10.5], [1.1, 2.5, 10.3], [1.2, 3.0, 10.2]])
+detector = CatenaryDetector()
+results = detector.fit(points)
+```
+
+### Accessing Catenary Parameters
+```python
+for wire in results.wires:
     params = wire.catenary.params
-    print(f"Wire {wire.wire_id}:")
-    print(f"  x₀ = {params.x0:.4f} m (horizontal position of lowest point)")
-    print(f"  y₀ = {params.y0:.4f} m (height of lowest point)")
-    print(f"  c  = {params.c:.4f} m (curvature parameter)")
-    print(f"  R² = {wire.catenary.r_squared:.4f}")
-    print(f"  RMSE = {wire.catenary.rmse:.4f} m")
-
-# ------------------------------
-# Example 2: Use NumPy arrays
-# ------------------------------
-# Your point cloud data (N x 3 array)
-points = np.array([
-    [1.0, 2.0, 10.5],
-    [1.1, 2.5, 10.3],
-    [1.2, 3.0, 10.2],
-    # ... more points
-])
-
-results_array = detector.fit(points)
-
-# Print summary
-detector.print_summary(results_array)
-
-# Access per-wire parameters
-for wire in results_array.wires:
-    params = wire.catenary.params
-    print(f"Wire {wire.wire_id}: x₀={params.x0:.4f}, y₀={params.y0:.4f}, "
-          f"c={params.c:.4f}, R²={wire.catenary.r_squared:.4f}, "
-          f"RMSE={wire.catenary.rmse:.4f}")
+    print(f"Wire {wire.wire_id}: x₀={params.x0:.4f}, y₀={params.y0:.4f}, c={params.c:.4f}")
+```
 
 ### Saving Results
 ```python
-# Save to JSON
 detector.save_results(results, "outputs/results.json")
-
-# Plot and save visualization
 detector.plot(results, output_path="outputs/plot.png", show=True)
 ```
 
@@ -287,21 +259,8 @@ python examples/run_detection.py --input data/lidar_cable_points_easy.parquet --
 python examples/run_detection.py --input data/lidar_cable_points_easy.parquet --save-plot
 ```
 
-**Expected Output:**
-```
-Initializing CatenaryDetector...
-
-Processing: data/lidar_cable_points_easy.parquet
-============================================================
-CATENARY DETECTION RESULTS
-============================================================
-...
-Results saved to: outputs/lidar_cable_points_easy_results.json
-```
-
 ### Interactive Streamlit App
 ```bash
-streamlit # Make sure virtual environment is active!
 python -m streamlit run examples/streamlit_app.py
 ```
 
@@ -321,22 +280,16 @@ Then open **http://localhost:8501** in your browser.
 # Run all tests
 pytest tests/ -v
 
-# Run specific test file
-pytest tests/test_detector.py -v
-
-# Run with coverage report
+# Run with coverage
 pytest tests/ -v --cov=catenary_detector --cov-report=html
 ```
 
 **Expected Output:**
 ```
-tests/test_detector.py::TestCatenaryModels::test_catenary_params_validation PASSED [  6%]
-tests/test_detector.py::TestCatenaryModels::test_catenary_2d_evaluate PASSED [ 12%]
-tests/test_detector.py::TestPlane::test_plane_creation PASSED [ 25%]
-tests/test_detector.py::TestClustering::test_single_wire PASSED [ 43%]
-tests/test_detector.py::TestFitting::test_fit_clean_data PASSED [ 56%]
-tests/test_detector.py::TestIntegration::test_full_pipeline PASSED [ 68%]
-tests/test_plotting.py::test_plotting[easy] PASSED [ 81%]
+tests/test_detector.py::TestCatenaryModels::test_catenary_params_validation PASSED
+tests/test_detector.py::TestPlane::test_plane_creation PASSED
+tests/test_detector.py::TestClustering::test_single_wire PASSED
+tests/test_detector.py::TestFitting::test_fit_clean_data PASSED
 ...
 ========================= 16 passed in 3.42s =========================
 ```
@@ -346,8 +299,6 @@ tests/test_plotting.py::test_plotting[easy] PASSED [ 81%]
 ## 🔬 Algorithm
 
 ### Overview
-
-The detection pipeline has 3 main stages:
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │  1. CLUSTERING  │ --> │  2. PLANE FIT   │ --> │  3. CURVE FIT   │
@@ -357,149 +308,54 @@ The detection pipeline has 3 main stages:
 
 ### Stage 1: Wire Clustering
 
-**Decision Tree:**
-
 | Condition | Detection | Method |
 |-----------|-----------|--------|
 | Z range > 3m | **Stacked wires** | KMeans clustering on Z-axis |
 | 1100 ≤ points ≤ 1300 | **Parallel wires** | KMeans clustering on X-axis |
 | Otherwise | **Single wire** | No clustering needed |
 
-**Why these thresholds?**
-
-From EDA analysis (`notebooks/01_eda.ipynb`):
-- Single wires: Z range = 1.6-1.7m (natural catenary sag)
-- Stacked wires: Z range = 5.3m (two height levels ~3m apart)
-- **3m threshold** sits midway with safety margin (gap = 3.6m)
-
-**Point count heuristic:**
-- EASY (1 wire): 1502 points
-- EXTRAHARD (2 parallel): 1201 points
-- HARD (1 wire): 601 points
-
-The range 1100-1300 uniquely identifies EXTRAHARD in this dataset.
-
-> **See EDA notebook for full statistical proof of all thresholds.**
+**Why these thresholds?** See `eda_comprehensive_notebook.ipynb` for full statistical proof.
 
 ### Stage 2: Plane Fitting (SVD)
 
-Each wire lies approximately in a **vertical plane**. We find this plane using Singular Value Decomposition:
-```python
-# Center the points
-centered = points - centroid
-
-# SVD decomposition
-U, S, Vt = np.linalg.svd(centered, full_matrices=False)
-
-# Normal vector = direction of smallest variance
-normal = Vt[-1]  # Last row = smallest singular value
-
-# Create orthonormal basis in the plane
-u = Vt[0]  # First principal component
-v = np.cross(normal, u)  # Perpendicular in plane
-```
-
-Then project 3D points → 2D plane coordinates for curve fitting.
+Each wire lies in a vertical plane. We find this plane using Singular Value Decomposition, then project 3D points → 2D coordinates.
 
 ### Stage 3: Catenary Fitting
 
-The **catenary equation** (shape of hanging cable):
+The catenary equation:
 ```
 y(x) = y₀ + c × [cosh((x - x₀) / c) - 1]
 ```
 
-**Parameters:**
-| Parameter | Physical Meaning | Typical Range |
-|-----------|------------------|---------------|
-| **x₀** | Horizontal position of lowest point | -50m to +50m |
-| **y₀** | Height of lowest point | 5m to 15m |
-| **c** | Curvature = H/w (tension/weight ratio) | 10m to 200m |
+| Parameter | Meaning |
+|-----------|---------|
+| **x₀** | Horizontal position of lowest point |
+| **y₀** | Height of lowest point |
+| **c** | Curvature (larger = flatter curve) |
 
-where:
-- **H** = Horizontal tension (Newtons)
-- **w** = Weight per unit length (N/m)
-- Larger **c** → flatter curve (higher tension or lighter cable)
-
-**Optimization:**
-```python
-from scipy.optimize import curve_fit
-
-# Initial guess
-x0_init = x[np.argmin(y)]  # Position of min height
-y0_init = y.min()          # Minimum height
-c_init = (x.max() - x.min()) / 3  # ~1/3 of span
-
-# Robust fitting (handles outliers)
-params, _ = curve_fit(
-    catenary_func,
-    x, y,
-    p0=[x0_init, y0_init, c_init],
-    bounds=([x.min(), y.min(), 0.1], 
-            [x.max(), y.max(), 500]),
-    loss='soft_l1',  # Robust to outliers
-    max_nfev=10000
-)
-```
-
-**Quality metrics:**
-- **R²** (coefficient of determination): measures fit quality (0 to 1)
-- **RMSE** (root mean square error): average deviation in meters
+We use `scipy.optimize.curve_fit` with robust fitting (soft L1 loss).
 
 ---
 
 ## 📁 Project Structure
 ```
 catenary-detection/
-│
 ├── src/catenary_detector/          # Main package
-│   ├── __init__.py                 # Package exports
-│   ├── config.py                   # Configuration (thresholds)
-│   ├── detector.py                 # Main CatenaryDetector class
-│   │
-│   ├── models/                     # Data models
-│   │   ├── __init__.py
-│   │   ├── plane.py                # Plane fitting with SVD
-│   │   ├── catenary.py             # Catenary equations
-│   │   └── wire.py                 # Wire & WireCollection
-│   │
-│   ├── clustering/                 # Wire separation
-│   │   ├── __init__.py
-│   │   └── wire_clusterer.py       # Clustering logic
-│   │
-│   ├── fitting/                    # Curve fitting
-│   │   ├── __init__.py
-│   │   └── catenary_fitter.py      # scipy optimization
-│   │
-│   ├── io/                         # Input/Output
-│   │   ├── __init__.py
-│   │   └── loader.py               # Load data formats
-│   │
-│   └── visualization/              # Plotting
-│       ├── __init__.py
-│       └── visualizer.py           # Matplotlib/Plotly
-│
-├── notebooks/                      # Analysis
-│   └── 01_eda.ipynb                # Exploratory Data Analysis
-│
-├── examples/                       # Usage examples
-│   ├── run_detection.py            # CLI script
-│   └── streamlit_app.py            # Interactive demo
-│
-├── tests/                          # Unit & integration tests
 │   ├── __init__.py
-│   ├── test_detector.py            # Core tests
-│   └── test_plotting.py            # Visualization tests
-│
+│   ├── config.py                   # Configuration
+│   ├── detector.py                 # Main class
+│   ├── models/                     # Plane, Catenary, Wire
+│   ├── clustering/                 # Wire separation
+│   ├── fitting/                    # Curve fitting
+│   ├── io/                         # Data loading
+│   └── visualization/              # Plotting
+├── notebooks/                      # EDA notebooks
+├── examples/                       # CLI + Streamlit
+├── tests/                          # Unit tests
 ├── data/                           # Data files (gitignored)
-│   └── *.parquet                   # LiDAR datasets
-│
-├── outputs/                        # Generated results (gitignored)
-│
-├── pyproject.toml                  # Package metadata
-├── requirements.txt                # Dependencies (pinned versions)
-├── .gitignore                      # Git ignore rules
-├── LICENSE                         # MIT License
-└── README.md                       # This file
+├── pyproject.toml
+├── requirements.txt
+└── README.md
 ```
 
 ---
@@ -507,411 +363,141 @@ catenary-detection/
 ## 📚 API Reference
 
 ### CatenaryDetector
-
-Main class for wire detection and fitting.
 ```python
 from catenary_detector import CatenaryDetector
-
-detector = CatenaryDetector(config=None)
-```
-
-**Parameters:**
-- `config` (optional): Custom configuration for clustering and fitting
-
-**Methods:**
-
-| Method | Parameters | Returns | Description |
-|--------|-----------|---------|-------------|
-| `fit(source)` | `source`: filepath or ndarray | `WireCollection` | Run full detection pipeline |
-| `print_summary(results)` | `results`: WireCollection | None | Print formatted results |
-| `save_results(results, path)` | `results`, `path`: str | None | Save to JSON file |
-| `plot(results, **kwargs)` | `results`, `show`, `output_path` | `Figure` | Visualize results |
-
-**Example:**
-```python
 detector = CatenaryDetector()
-results = detector.fit("data/points.parquet")
-detector.print_summary(results)
-detector.save_results(results, "outputs/results.json")
-detector.plot(results, output_path="outputs/plot.png")
 ```
+
+| Method | Description |
+|--------|-------------|
+| `fit(source)` | Run detection on file path or numpy array |
+| `print_summary(results)` | Print formatted results |
+| `save_results(results, path)` | Save results to JSON |
+| `plot(results)` | Visualize results |
 
 ### WireCollection
-
-Container for detection results.
 ```python
 results = detector.fit("data/points.parquet")
 ```
-
-**Properties:**
 
 | Property | Type | Description |
 |----------|------|-------------|
 | `n_wires` | int | Number of detected wires |
-| `total_points` | int | Total point count across all wires |
-| `wires` | List[Wire] | List of individual Wire objects |
-| `is_fitted` | bool | Whether all wires have fitted catenaries |
-
-**Methods:**
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `get_summary()` | dict | Summary statistics as dictionary |
-| `__iter__()` | Iterator[Wire] | Iterate over wires |
-| `__getitem__(idx)` | Wire | Access wire by index |
-
-**Example:**
-```python
-for wire in results:
-    print(f"Wire {wire.wire_id}: {len(wire.points)} points")
-
-first_wire = results[0]
-summary = results.get_summary()
-```
+| `total_points` | int | Total point count |
+| `wires` | List[Wire] | Individual wire objects |
+| `is_fitted` | bool | Whether all wires are fitted |
 
 ### Wire
 
-Individual wire data and fitted catenary.
-```python
-wire = results.wires[0]
-```
-
-**Properties:**
-
 | Property | Type | Description |
 |----------|------|-------------|
-| `wire_id` | int | Unique wire identifier (0, 1, ...) |
-| `points` | ndarray | Point cloud (N, 3) array |
-| `catenary` | Catenary3D | Fitted catenary curve object |
-| `is_fitted` | bool | Whether catenary fitting succeeded |
-
-**Example:**
-```python
-print(f"Wire ID: {wire.wire_id}")
-print(f"Points: {wire.points.shape}")
-print(f"Fitted: {wire.is_fitted}")
-if wire.is_fitted:
-    print(f"R²: {wire.catenary.r_squared:.4f}")
-```
+| `wire_id` | int | Wire identifier |
+| `points` | ndarray | Point cloud (N, 3) |
+| `catenary` | Catenary3D | Fitted catenary curve |
+| `is_fitted` | bool | Whether fitting succeeded |
 
 ### Catenary3D
-
-Fitted catenary curve with parameters and quality metrics.
-```python
-cat = wire.catenary
-```
-
-**Properties:**
 
 | Property | Type | Description |
 |----------|------|-------------|
 | `params` | CatenaryParams | x₀, y₀, c parameters |
-| `r_squared` | float | R² score (0 to 1, higher = better) |
-| `rmse` | float | Root mean square error (meters) |
-| `plane` | Plane | 3D plane containing the wire |
-| `x_range` | tuple | (x_min, x_max) in plane coordinates |
-
-**Methods:**
-
-| Method | Parameters | Returns | Description |
-|--------|-----------|---------|-------------|
-| `generate_curve_3d(n_points)` | `n_points`: int | ndarray (N, 3) | Generate 3D curve points |
-| `evaluate_2d(x)` | `x`: ndarray | ndarray | Evaluate y values in 2D |
-
-**Example:**
-```python
-params = cat.params
-print(f"x₀ = {params.x0:.4f} m")
-print(f"y₀ = {params.y0:.4f} m")
-print(f"c  = {params.c:.4f} m")
-print(f"R² = {cat.r_squared:.4f}")
-
-# Generate curve for plotting
-curve_3d = cat.generate_curve_3d(n_points=200)
-```
+| `r_squared` | float | R² score (0 to 1) |
+| `rmse` | float | Root mean square error |
 
 ---
 
 ## 🚧 Known Limitations
 
-| Limitation | Impact | Reason | Potential Solution |
-|------------|--------|--------|-------------------|
-| **Point count heuristic** | Dataset-specific | EASY and EXTRAHARD are statistically identical (same Z-range, silhouette scores, distributions) | 1. Use `expected_wires` config parameter<br>2. Add metadata file<br>3. Train ML classifier |
-| **Parallel wires at same height** | Cannot distinguish automatically | No geometric feature separates them | Require user hint or scan metadata |
-| **Fixed thresholds** | May not generalize | Tuned for these 4 datasets | Modify `config.py` or add auto-calibration |
-| **Assumes single plane** | Fails for curved paths | SVD finds best-fit plane | Multi-plane segmentation |
+| Limitation | Reason | Potential Solution |
+|------------|--------|-------------------|
+| **Point count heuristic** | EASY and EXTRAHARD are statistically identical | Use `expected_wires` parameter or ML classifier |
+| **Parallel wires at same height** | No geometric feature to distinguish | Require user hint or metadata |
+| **Fixed thresholds** | Tuned for specific datasets | Modify `config.py` or add auto-calibration |
 
 ### Why Point Count Heuristic?
 
-During EDA analysis, I discovered that EASY (single wire, 1502 points) and EXTRAHARD (parallel wires, 1201 points) are **statistically indistinguishable**:
-
-| Feature | EASY | EXTRAHARD | Difference |
-|---------|------|-----------|------------|
-| Z range | 1.68m | 1.61m | 0.07m ≈ 0 |
-| Z std | 0.46m | 0.44m | 0.02m ≈ 0 |
-| Silhouette (X, k=2) | 0.624 | 0.626 | 0.002 ≈ 0 |
-| Silhouette (Z, k=2) | 0.669 | 0.662 | 0.007 ≈ 0 |
-
-**The ONLY distinguishing feature is point count**: 1502 vs 1201.
-
-This heuristic is:
-- ✅ **Transparent**: Clearly documented as dataset-specific
-- ✅ **Practical**: Solves all 4 test cases
-- ❌ **Not general**: Won't work on other datasets
-
-**Alternative approaches for production:**
-```python
-# Option 1: Explicit configuration
-detector = CatenaryDetector(expected_wires=2)
-results = detector.fit(points)
-
-# Option 2: Metadata file
-# data/metadata.json: {"lidar_cable_points_extrahard.parquet": {"wires": 2}}
-
-# Option 3: Machine learning classifier
-# Train on features: point count, Z-range, density, etc.
-```
-
-See `notebooks/01_eda.ipynb` for full statistical analysis.
+EASY (1502 pts) and EXTRAHARD (1201 pts) have identical Z-range (~1.6m) and silhouette scores (~0.62). Point count is the **only** distinguishing feature. See `eda_comprehensive_notebook.ipynb` for full analysis.
 
 ---
 
 ## 🔮 Future Improvements
 
-| Feature | Priority | Complexity | Impact |
-|---------|----------|------------|--------|
-| **Machine Learning Clustering** | 🔴 High | Medium | Replace heuristics with learned model |
-| **Confidence Scores** | 🔴 High | Low | Return uncertainty estimates per detection |
-| **Auto-calibration** | 🟡 Medium | High | Learn thresholds from training data |
-| **Multi-span Detection** | 🟡 Medium | Medium | Handle wires across multiple towers |
-| **LAS/LAZ Support** | 🟡 Medium | Low | Native LiDAR format support |
-| **GPU Acceleration** | 🟢 Low | High | Speed up large point clouds (>100k points) |
-| **REST API** | 🟢 Low | Medium | Deploy as web service |
-| **Outlier Detection** | 🟡 Medium | Medium | Automatic noise removal (RANSAC) |
-| **Temperature-based Sag** | 🟢 Low | Low | Predict sag from temperature/load |
-| **Multi-plane Segmentation** | 🟡 Medium | High | Handle non-planar wire paths |
+| Feature | Priority | Description |
+|---------|----------|-------------|
+| **ML Clustering** | 🔴 High | Replace heuristics with learned model |
+| **Confidence Scores** | 🔴 High | Return uncertainty estimates |
+| **LAS/LAZ Support** | 🟡 Medium | Native LiDAR format support |
+| **GPU Acceleration** | 🟢 Low | Speed up large point clouds |
+| **REST API** | 🟢 Low | Deploy as web service |
 
 ---
 
 ## ⚙️ Configuration
 
-Adjust detection parameters by modifying `src/catenary_detector/config.py`:
+Modify `src/catenary_detector/config.py`:
 ```python
-from dataclasses import dataclass
-
 @dataclass
 class ClusteringConfig:
-    """Wire clustering parameters."""
-    z_range_threshold: float = 3.0       # Meters - stacked wire detection
-    parallel_point_min: int = 1100       # Point count range for parallel
+    z_range_threshold: float = 3.0       # Stacked wire detection
+    parallel_point_min: int = 1100       # Parallel wire range
     parallel_point_max: int = 1300
-    min_points_per_wire: int = 10        # Minimum points to fit
-    max_wires: int = 4                   # Maximum expected wires
+    min_points_per_wire: int = 10
 
 @dataclass  
 class FittingConfig:
-    """Catenary fitting parameters."""
-    c_bounds: tuple = (0.1, 500)         # Curvature parameter bounds
-    max_iterations: int = 10000          # scipy optimization limit
-    robust_loss: str = 'soft_l1'         # Robust to outliers
-    min_r_squared: float = 0.7           # Minimum acceptable fit
-```
-
-**Example usage:**
-```python
-from catenary_detector import CatenaryDetector
-from catenary_detector.config import ClusteringConfig, FittingConfig
-
-# Custom configuration
-cluster_config = ClusteringConfig(z_range_threshold=2.5)
-fit_config = FittingConfig(c_bounds=(1, 300))
-
-detector = CatenaryDetector(
-    clustering_config=cluster_config,
-    fitting_config=fit_config
-)
+    c_bounds: tuple = (0.1, 500)         # Curvature bounds
+    max_iterations: int = 10000
+    robust_loss: str = 'soft_l1'
 ```
 
 ---
 
 ## ❓ Troubleshooting
 
-### Installation Issues
-
-#### ❌ ModuleNotFoundError: No module named 'catenary_detector'
-
-**Solution:**
+### ModuleNotFoundError: No module named 'catenary_detector'
 ```bash
-# Ensure you're in the project directory
-cd catenary-detection
-
-# Install in editable mode
 pip install -e .
-
-# Verify
-python -c "from catenary_detector import CatenaryDetector; print('OK')"
 ```
 
-#### ❌ ERROR: Could not find a version that satisfies the requirement...
+### No dataset files found
 
-**Solution:** Upgrade pip and try again
-```bash
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
-```
+Download data files and place in `data/` folder. See [Data Setup](#-data-setup).
 
-### Data Issues
-
-#### ❌ FileNotFoundError: data/lidar_cable_points_easy.parquet
-
-**Solution:** Download data files
-```bash
-# Create data directory
-mkdir -p data
-
-# Download from Google Drive (see Data Setup section)
-# Place all 4 .parquet files in data/ folder
-
-# Verify
-ls data/
-```
-
-#### ❌ No dataset files found in data/ directory
-
-**Solution:**
-```bash
-# Check current directory
-pwd  # Should be: /path/to/catenary-detection
-
-# List data files
-ls -lh data/*.parquet
-
-# Run examples from project root
-python examples/run_detection.py
-```
-
-### Runtime Issues
-
-#### ❌ ModuleNotFoundError: No module named 'plotly'
-
-**Solution:**
+### ModuleNotFoundError: No module named 'plotly'
 ```bash
 pip install plotly
 ```
 
-#### ❌ Low R² score (< 0.9)
-
-**Possible causes:**
-- Data contains outliers → Use robust fitting (default)
-- Points from multiple wires → Check clustering
-- Data units not in meters → Convert to meters
-- Extreme wire curvature → Adjust `c_bounds` in config
-
-**Debug:**
-```python
-# Visualize the data first
-import matplotlib.pyplot as plt
-points = detector.load(path)
-plt.scatter(points[:, 0], points[:, 2], s=1)
-plt.xlabel('X'); plt.ylabel('Z')
-plt.show()
-```
-
-### Environment Issues
-
-#### ❌ Wrong Python version or virtual environment
-
-**Solution:**
+### Wrong Python environment
 ```bash
-# Check Python version (should be 3.9+)
-python --version
-
-# Check which Python is being used
-which python
-
-# Activate virtual environment
 source .venv/bin/activate  # macOS/Linux
 .venv\Scripts\activate     # Windows
-
-# Verify correct environment
-which python  # Should point to .venv/bin/python
 ```
 
-#### ❌ Streamlit won't start
-
-**Solution:**
+### Streamlit won't start
 ```bash
-# Make sure plotly is installed
-pip install plotly streamlit
+# Use python -m to ensure correct environment
+python -m streamlit run examples/streamlit_app.py
 
-# Run from virtual environment
-source .venv/bin/activate
-streamlit run examples/streamlit_app.py
-
-# If port 8501 is busy, use different port
-streamlit run examples/streamlit_app.py --server.port 8502
+# If port busy, use different port
+python -m streamlit run examples/streamlit_app.py --server.port 8502
 ```
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please follow these steps:
-
-1. **Fork** the repository
-2. **Create** a feature branch:
-```bash
-   git checkout -b feature/amazing-feature
-```
-3. **Make** your changes and add tests
-4. **Run** tests to ensure nothing breaks:
-```bash
-   pytest tests/ -v
-```
-5. **Commit** with clear message:
-```bash
-   git commit -m 'Add amazing feature: brief description'
-```
-6. **Push** to your fork:
-```bash
-   git push origin feature/amazing-feature
-```
-7. **Open** a Pull Request with description of changes
-
-### Development Setup
-```bash
-# Clone your fork
-git clone https://github.com/YOUR_USERNAME/catenary-detection.git
-cd catenary-detection
-
-# Create development environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install in editable mode with dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/ -v
-
-# Check code style
-black src/ tests/ examples/
-```
+1. Fork the repository
+2. Create feature branch: `git checkout -b feature/amazing-feature`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push: `git push origin feature/amazing-feature`
+5. Open Pull Request
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-```
-MIT License
-
-Copyright (c) 2024 [Your Name]
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction...
-```
+MIT License - see [LICENSE](LICENSE) file.
 
 ---
 
@@ -919,18 +505,8 @@ in the Software without restriction...
 ## 🙏 Acknowledgments
 
 - **Blunomy** for the problem statement and datasets
-- **SciPy** for robust optimization algorithms
+- **SciPy** for optimization algorithms
 - **Streamlit** for the interactive demo framework
-- **scikit-learn** for clustering utilities
-- **Plotly** for beautiful 3D visualizations
-
----
-
-## 📚 References
-
-- [Catenary Curve - Wikipedia](https://en.wikipedia.org/wiki/Catenary)
-- [Power Line Inspection Using LiDAR](https://www.mdpi.com/2072-4292/12/11/1800)
-- [SciPy curve_fit Documentation](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html)
 
 ---
 
@@ -938,5 +514,3 @@ in the Software without restriction...
   Made with ❤️ for Blunomy<br>
   <sub>If this project helped you, please ⭐ star the repo!</sub>
 </p>
-
-
