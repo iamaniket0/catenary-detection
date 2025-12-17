@@ -233,9 +233,9 @@ detector.print_summary(results_file)
 for wire in results_file.wires:
     params = wire.catenary.params
     print(f"Wire {wire.wire_id}:")
-    print(f"  x₀ = {params.x0:.4f} m  (horizontal position of lowest point)")
-    print(f"  y₀ = {params.y0:.4f} m  (height of lowest point)")
-    print(f"  c  = {params.c:.4f} m   (curvature parameter)")
+    print(f"  x₀ = {params.x0:.4f} m (horizontal position of lowest point)")
+    print(f"  y₀ = {params.y0:.4f} m (height of lowest point)")
+    print(f"  c  = {params.c:.4f} m (curvature parameter)")
     print(f"  R² = {wire.catenary.r_squared:.4f}")
     print(f"  RMSE = {wire.catenary.rmse:.4f} m")
 
@@ -258,9 +258,9 @@ detector.print_summary(results_array)
 # Access per-wire parameters
 for wire in results_array.wires:
     params = wire.catenary.params
-    print(f"Wire {wire.wire_id}: x₀={params.x0:.4f}, y₀={params.y0:.4f}, c={params.c:.4f}, "
-          f"R²={wire.catenary.r_squared:.4f}, RMSE={wire.catenary.rmse:.4f}")
-
+    print(f"Wire {wire.wire_id}: x₀={params.x0:.4f}, y₀={params.y0:.4f}, "
+          f"c={params.c:.4f}, R²={wire.catenary.r_squared:.4f}, "
+          f"RMSE={wire.catenary.rmse:.4f}")
 
 ### Saving Results
 ```python
@@ -301,7 +301,8 @@ Results saved to: outputs/lidar_cable_points_easy_results.json
 
 ### Interactive Streamlit App
 ```bash
-streamlit run examples/streamlit_app.py
+streamlit # Make sure virtual environment is active!
+python -m streamlit run examples/streamlit_app.py
 ```
 
 Then open **http://localhost:8501** in your browser.
