@@ -215,44 +215,33 @@ np.save('data/my_data.npy', points)
 
 ## ⚡ Quick Start
 
-### Basic Usage
-```python
 from catenary_detector import CatenaryDetector
+import numpy as np
 
 # Initialize detector
 detector = CatenaryDetector()
 
-# Run detection on a file
-results = detector.fit("data/lidar_cable_points_easy.parquet")
+# ------------------------------
+# Example 1: Load from a file
+# ------------------------------
+results_file = detector.fit("data/lidar_cable_points_easy.parquet")
 
 # Print summary
-detector.print_summary(results)
-```
+detector.print_summary(results_file)
 
-**Output:**
-```
-============================================================
-CATENARY DETECTION RESULTS
-============================================================
-Source: data/lidar_cable_points_easy.parquet
-Wires detected: 1
-Total points: 1502
-Points per wire: 1502-1502 (mean: 1502)
-Fit Quality:
-  Fitted: 1/1 wires
-  Mean R²: 0.9923
-  Min R²: 0.9923
-  Mean RMSE: 0.0404m
-Per-wire details:
-  Wire 0: 1502 pts, R²=0.9923, RMSE=0.0404m
-============================================================
-```
+# Access per-wire parameters
+for wire in results_file.wires:
+    params = wire.catenary.params
+    print(f"Wire {wire.wire_id}:")
+    print(f"  x₀ = {params.x0:.4f} m  (horizontal position of lowest point)")
+    print(f"  y₀ = {params.y0:.4f} m  (height of lowest point)")
+    print(f"  c  = {params.c:.4f} m   (curvature parameter)")
+    print(f"  R² = {wire.catenary.r_squared:.4f}")
+    print(f"  RMSE = {wire.catenary.rmse:.4f} m")
 
-### Using NumPy Arrays
-```python
-import numpy as np
-from catenary_detector import CatenaryDetector
-
+# ------------------------------
+# Example 2: Use NumPy arrays
+# ------------------------------
 # Your point cloud data (N x 3 array)
 points = np.array([
     [1.0, 2.0, 10.5],
@@ -261,23 +250,17 @@ points = np.array([
     # ... more points
 ])
 
-detector = CatenaryDetector()
-results = detector.fit(points)
-```
+results_array = detector.fit(points)
 
-### Accessing Wire Parameters
-```python
-results = detector.fit("data/lidar_cable_points_easy.parquet")
+# Print summary
+detector.print_summary(results_array)
 
-for wire in results.wires:
+# Access per-wire parameters
+for wire in results_array.wires:
     params = wire.catenary.params
-    print(f"Wire {wire.wire_id}:")
-    print(f"  x₀ = {params.x0:.4f} m  (horizontal position of lowest point)")
-    print(f"  y₀ = {params.y0:.4f} m  (height of lowest point)")
-    print(f"  c  = {params.c:.4f} m   (curvature parameter)")
-    print(f"  R² = {wire.catenary.r_squared:.4f}")
-    print(f"  RMSE = {wire.catenary.rmse:.4f} m")
-```
+    print(f"Wire {wire.wire_id}: x₀={params.x0:.4f}, y₀={params.y0:.4f}, c={params.c:.4f}, "
+          f"R²={wire.catenary.r_squared:.4f}, RMSE={wire.catenary.rmse:.4f}")
+
 
 ### Saving Results
 ```python
@@ -954,4 +937,5 @@ in the Software without restriction...
   Made with ❤️ for Blunomy<br>
   <sub>If this project helped you, please ⭐ star the repo!</sub>
 </p>
+
 
